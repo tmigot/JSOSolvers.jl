@@ -1,4 +1,22 @@
-export lbfgs
+export lbfgs, LBFGSSolver
+
+mutable struct LBFGSSolver{T, V}
+  workspace
+end
+
+function LBFGSSolver{T, V}(
+  meta::AbstractNLPModelMeta;
+) where {T, V}
+  nvar = meta.nvar
+  workspace = (
+    x = V(undef, nvar),
+    xt = V(undef, nvar),
+    gx = V(undef, nvar),
+    gt = V(undef, nvar),
+    d = V(undef, nvar),
+  )
+  return LBFGSSolver{T, V}(workspace)
+end
 
 """
     lbfgs(nlp)
@@ -8,14 +26,25 @@ minimization.
 """
 function lbfgs(
   nlp::AbstractNLPModel;
-  x::AbstractVector = copy(nlp.meta.x0),
-  atol::Real = √eps(eltype(x)),
-  rtol::Real = √eps(eltype(x)),
+  x::V = nlp.meta.x0,
+  kwargs...,
+) where V
+  T = eltype(nlp.meta.x0)
+  solver = LBFGSSolver{T, V}(nlp.meta)
+  return solve!(solver, nlp; x=x, kwargs...)
+end
+
+function solve!(
+  solver::LBFGSSolver{T, V},
+  nlp::AbstractNLPModel;
+  x::V = nlp.meta.x0,
+  atol::Real = √eps(T),
+  rtol::Real = √eps(T),
   max_eval::Int = -1,
   max_time::Float64 = 30.0,
   verbose::Bool = true,
   mem::Int = 5,
-)
+) where {T, V}
   if !unconstrained(nlp)
     error("lbfgs should only be called for unconstrained problems. Try tron instead")
   end
@@ -23,14 +52,16 @@ function lbfgs(
   start_time = time()
   elapsed_time = 0.0
 
-  T = eltype(x)
   n = nlp.meta.nvar
 
-  xt = zeros(T, n)
-  ∇ft = zeros(T, n)
+  solver.workspace.x .= x
+  x = solver.workspace.x
+  xt = solver.workspace.xt
+  ∇f = solver.workspace.gx
+  ∇ft = solver.workspace.gt
 
   f = obj(nlp, x)
-  ∇f = grad(nlp, x)
+  grad!(nlp, x, ∇f)
   H = InverseLBFGSOperator(T, n, mem, scaling = true)
 
   ∇fNorm = nrm2(n, ∇f)
@@ -49,9 +80,10 @@ function lbfgs(
   status = :unknown
 
   h = LineModel(nlp, x, ∇f)
+  d = solver.workspace.d
 
   while !(optimal || tired || stalled)
-    d = -H * ∇f
+    d .= -H * ∇f
     slope = dot(n, d, ∇f)
     if slope ≥ 0
       @error "not a descent direction" slope
@@ -71,7 +103,9 @@ function lbfgs(
     good_grad || grad!(nlp, xt, ∇ft)
 
     # Update L-BFGS approximation.
-    push!(H, t * d, ∇ft - ∇f)
+    d .*= t
+    @. ∇f = ∇ft - ∇f
+    push!(H, d, ∇f)
 
     # Move on.
     x .= xt

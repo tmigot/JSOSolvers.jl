@@ -6,6 +6,8 @@ using LinearAlgebra, Logging, Printf
 # JSO packages
 using Krylov, LinearOperators, NLPModels, NLPModelsModifiers, SolverCore, SolverTools
 
+export solve!
+
 # Unconstrained solvers
 include("lbfgs.jl")
 include("trunk.jl")
