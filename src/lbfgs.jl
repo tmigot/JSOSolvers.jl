@@ -5,15 +5,20 @@ mutable struct LBFGSSolver{T, V}
 end
 
 function LBFGSSolver{T, V}(
-  meta::AbstractNLPModelMeta;
+  nlp::AbstractNLPModel;
+  mem :: Int = 5,
 ) where {T, V}
-  nvar = meta.nvar
+  nvar = nlp.meta.nvar
+  x = V(undef, nvar)
+  d = V(undef, nvar)
   workspace = (
-    x = V(undef, nvar),
+    x = x,
     xt = V(undef, nvar),
     gx = V(undef, nvar),
     gt = V(undef, nvar),
-    d = V(undef, nvar),
+    d = d,
+    H = InverseLBFGSOperator(T, nvar, mem, scaling = true),
+    h = LineModel(nlp, x, d),
   )
   return LBFGSSolver{T, V}(workspace)
 end
@@ -30,7 +35,7 @@ function lbfgs(
   kwargs...,
 ) where V
   T = eltype(nlp.meta.x0)
-  solver = LBFGSSolver{T, V}(nlp.meta)
+  solver = LBFGSSolver{T, V}(nlp)
   return solve!(solver, nlp; x=x, kwargs...)
 end
 
@@ -59,10 +64,13 @@ function solve!(
   xt = solver.workspace.xt
   ∇f = solver.workspace.gx
   ∇ft = solver.workspace.gt
+  d = solver.workspace.d
+  h = solver.workspace.h
+  H = solver.workspace.H
+  reset!(H)
 
   f = obj(nlp, x)
   grad!(nlp, x, ∇f)
-  H = InverseLBFGSOperator(T, n, mem, scaling = true)
 
   ∇fNorm = nrm2(n, ∇f)
   ϵ = atol + rtol * ∇fNorm
@@ -79,11 +87,8 @@ function solve!(
   stalled = false
   status = :unknown
 
-  h = LineModel(nlp, x, ∇f)
-  d = solver.workspace.d
-
   while !(optimal || tired || stalled)
-    d .= -H * ∇f
+    mul!(d, H, ∇f, -one(T), zero(T))
     slope = dot(n, d, ∇f)
     if slope ≥ 0
       @error "not a descent direction" slope
@@ -92,7 +97,6 @@ function solve!(
       continue
     end
 
-    redirect!(h, x, d)
     # Perform improved Armijo linesearch.
     t, good_grad, ft, nbk, nbW =
       armijo_wolfe(h, f, slope, ∇ft, τ₁ = T(0.9999), bk_max = 25, verbose = false)
