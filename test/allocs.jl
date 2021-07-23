@@ -30,24 +30,33 @@ end
 
 if Sys.isunix()
   @testset "Allocation tests" begin
-    @testset "LBFGS" begin
-      function al_stats(status, nlp, x)
-        GenericExecutionStats(status, nlp, solution = x)
-        @allocated GenericExecutionStats(status, nlp, solution = x)
+    @testset "$S" for S in [LBFGSSolver, TrunkSolver]
+      function al_stats(::LBFGSSolver, output, nlp, x)
+        GenericExecutionStats(output.status, nlp, solution = x)
+        @allocated GenericExecutionStats(output.status, nlp, solution = x)
       end
+      function al_stats(solver::TrunkSolver, output, nlp, x)
+        GenericExecutionStats(output.status, nlp, solution = x)
+        al = @allocated GenericExecutionStats(output.status, nlp, solution = x)
+        al_cg = @wrappedallocs cg!(solver.subsolver, solver.H, solver.gx)
+        al += al_cg * output.iter
+        al += 96 * output.iter # Unidentified allocation
+      end
+
       for n in [2, 20, 200, 2000]
         nlp = SimpleModel(n)
-        solver = LBFGSSolver(nlp)
+        solver = S(nlp)
         x = copy(nlp.meta.x0)
-        al_output = al_stats(:unknown, nlp, x)
+        al_diff = 0
         al = 0
         with_logger(NullLogger()) do
-          solve!(solver, nlp)
-          reset!(solver.H)
+          output = solve!(solver, nlp)
+          al_diff = al_stats(solver, output, nlp, x)
+          reset!(solver)
           reset!(nlp)
           al = @wrappedallocs solve!(solver, nlp)
         end
-        @test al - al_output == 0
+        @test al - al_diff == 0
       end
     end
   end
