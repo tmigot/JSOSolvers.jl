@@ -171,6 +171,7 @@ function solve!(
   end
 
   αC = one(T)
+  @show gt, one(T), πx, min(max(one(T), πx / 10), 100)
   tr = TRONTrustRegion(gt, min(max(one(T), πx / 10), 100))
   verbose > 0 && @info log_header(
     [:iter, :f, :dual, :radius, :ratio, :cgstatus],
