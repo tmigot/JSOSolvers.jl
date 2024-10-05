@@ -1,6 +1,7 @@
 #= Examples of commands:
 julia .\benchmark.jl cutest
 julia .\benchmark.jl jump
+julia .\benchmark.jl ad
 julia .\benchmark.jl ad Float32 50
 =#
 using Pkg
@@ -51,8 +52,8 @@ else
   run_ad_nls = false
 end
 
-max_time = 1200.0 # 20 minutes
-tol = sqrt(eps(T)) # 1e-5 # relative tolerance
+max_time = 600.0 # 10 minutes
+tol = sqrt(eps(T)) # relative tolerance
 ###############################################################################
 
 (problems, bench) = if run_cutest
@@ -132,7 +133,7 @@ end
 stats = bmark_solvers(
   solvers,
   problems,
-  #skipif=prob -> (prob.meta.name == "DIXMAANE1"), #(get_nvar(prob) < 3) # useful for debugging
+  skipif=prob -> (prob.meta.name == "penalty2"), #(get_nvar(prob) < 3) # useful for debugging
 )
 
 using JLD2, Dates
